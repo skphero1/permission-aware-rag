@@ -1,0 +1,36 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: ragpassword
+      POSTGRES_DB: ragdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d ragdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://rag:ragpassword@db:5432/ragdb
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-fastembed}
+      ALLOW_DEMO_TOKENS: ${ALLOW_DEMO_TOKENS:-true}
+      DEMO_JWT_SECRET: ${DEMO_JWT_SECRET:-dev-only-change-me-in-prod}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./demo:/app/demo
+
+volumes:
+  pgdata:

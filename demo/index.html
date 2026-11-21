@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Permission-Aware RAG — Project 8 (v0.3)</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; color: #111; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .col { border: 1px solid #ddd; border-radius: 10px; padding: 16px; }
+  .col h2 { margin-top: 0; }
+  .passage { background: #f6f6f6; border-left: 4px solid #2563eb; padding: 10px; margin: 10px 0; border-radius: 6px; }
+  .tag { font-size: 12px; background: #e0e7ff; padding: 2px 8px; border-radius: 20px; }
+  button, input { padding: 10px; font-size: 15px; }
+  input { width: 70%; }
+  .hidden-note { color: #b45309; font-size: 13px; }
+  @media (max-width: 700px) { .row { grid-template-columns: 1fr; } input { width: 100%; } }
+</style>
+</head>
+<body>
+<h1>Permission-Aware RAG — Project 8 (v0.3)</h1>
+<p>Same question, two users, <b>two separate Bearer tokens, two separate /ask calls</b>. There is no backend dual-role route any more — v0.3 removed <code>GET /demo/compare</code>. The passages below are what was actually retrieved, before any model answer.</p>
+<p>
+  <input id="q" value="What discount can we offer enterprise clients?">
+  <button onclick="run()">Ask both</button>
+  <button onclick="seed()">1. Seed via CLI first</button>
+</p>
+<p><small>Seed is now a CLI command, not an HTTP endpoint: <code>docker compose exec api python -m app.cli seed</code></small></p>
+<p>
+  Try: <a href="#" onclick="setQ('What are the 2026 salary bands?');return false;">salary bands</a> ·
+  <a href="#" onclick="setQ('Summarize clause HR-EQ-409A');return false;">clause HR-EQ-409A</a> ·
+  <a href="#" onclick="setQ('What is our product and pricing?');return false;">product &amp; pricing</a>
+</p>
+<div class="row">
+  <div class="col"><h2>🟦 Sales — Sara</h2><div id="sales"><i>Ask both to run.</i></div></div>
+  <div class="col"><h2>🟩 HR — Layla</h2><div id="hr"><i>Ask both to run.</i></div></div>
+</div>
+<script>
+async function tokenFor(user_id){
+  const r = await fetch('/auth/demo-token', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id})});
+  if(!r.ok) throw new Error('demo-token failed for ' + user_id + ' (' + r.status + ') — did you seed via CLI?');
+  return (await r.json()).access_token;
+}
+function setQ(v){ document.getElementById('q').value = v; run(); }
+async function seed(){ alert('Seed is a CLI command now:\n\ndocker compose exec api python -m app.cli seed'); }
+function render(el, data){
+  const box = document.getElementById(el);
+  if(!data.passages.length){ box.innerHTML = '<p><b>No accessible passages.</b> This user cannot see a document answering that.</p>'; return; }
+  box.innerHTML = '<p class="hidden-note">' + data.filtered_out_chunks + ' chunk(s) exist that this user cannot see — filtered in SQL + RLS before search.</p>' +
+    data.passages.map(p => `<div class="passage"><b>${p.doc_title}</b> <span class="tag">${p.allowed_roles.join(', ')}</span> <span class="tag">${p.relevance}</span><br>${p.text}</div>`).join('') +
+    '<h3>Answer (extractive, from retrieved passages only)</h3><p>' + (data.answer || '').replace(/\n/g,'<br>') + '</p>';
+}
+async function askAs(user_id, q){
+  const token = await tokenFor(user_id);
+  const r = await fetch('/ask', {method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({query: q, top_k: 3})});
+  if(!r.ok) throw new Error('/ask failed: ' + r.status);
+  return r.json();
+}
+async function run(){
+  const q = document.getElementById('q').value;
+  try {
+    const [s, h] = await Promise.all([askAs('sara-sales', q), askAs('layla-hr', q)]);
+    render('sales', s);
+    render('hr', h);
+  } catch (e) { alert(e.message); }
+}
+</script>
+</body>
+</html>
